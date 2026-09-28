@@ -23,6 +23,7 @@ var Handlers = map[string]Handler{
 	"MULTI":   multi,
 	"EXEC":     _exec,
 	"DISCARD":  discard,
+	"AUTH":     auth,
 }
 
 func handle(c *Client,v *Value, state *AppState) {
@@ -81,7 +82,7 @@ func set(c *Client,v *Value, state *AppState) *Value {
 	key := args[0].bulk
 	value := args[1].bulk
 	db.mu.Lock()
-	db.Set(key,value)
+	db.Set(key,value,state)
 	if state.conf.aofEnabled {
 		log.Println("writing to aof")
 		state.aof.w.Write(v)
@@ -98,6 +99,22 @@ func command(c *Client,v *Value, state *AppState) *Value {
 	return &Value{typ: STRING, str: "OK"}
 }
 
+
+func auth(c *Client, v *Value, state *AppState) *Value {
+	args := v.array[1:]
+	if len(args) != 1 {
+		return &Value{typ: ERROR, err: "ERR invalid number of arguments for 'AUTH' command"}
+	}
+
+	p := args[0].bulk
+	if state.conf.password == p {
+		c.authenticated = true
+		return &Value{typ: STRING, str: "OK"}
+	} else {
+		c.authenticated = false
+		return &Value{typ: ERROR, err: "ERR invalid password"}
+	}
+}
 
 func del(c *Client,v *Value, state *AppState) *Value {
 	args := v.array[1:]

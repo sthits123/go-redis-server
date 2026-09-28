@@ -42,11 +42,6 @@ func main() {
 	
 }
 
-type AppState struct {
-	conf *Config
-	aof  *Aof
-	tx   *Transaction
-}
 
 func newAppState(conf *Config) *AppState {
 	state := AppState{conf: conf}
