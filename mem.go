@@ -9,7 +9,7 @@ func sampleKeys(state *AppState) []sample {
 	maxSamples := state.conf.memSamples
 	samples := make([]sample, 0, maxSamples)
 
-	for k, v := range db.store {
+	for k, v := range DB.store {
 		samples = append(samples, sample{
 			k: k,
 			v: v,

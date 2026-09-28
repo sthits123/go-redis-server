@@ -2,6 +2,22 @@ package main
 
 import "time"
 
+type RDBStats struct {
+	rdb_last_save_ts int64
+	rdb_saves        int
+}
+
+type AOFStats struct {
+	aof_rewrites int
+}
+
+type GeneralStats struct {
+	total_connections_received int
+	total_commands_processed   int
+	expired_keys               int
+	evicted_keys               int
+}
+
 type AppState struct {
 	conf              *Config
 	aof               *Aof
@@ -19,19 +35,30 @@ type AppState struct {
 	generalStats      GeneralStats
 }
 
-type RDBStats struct {
-	rdb_last_save_ts int64
-	rdb_saves        int
-}
+func NewAppState(conf *Config) *AppState {
+	state := AppState{
+		conf:         conf,
+		serverStart:  time.Now(),
+		info:         NewInfo(),
+		rdbStats:     RDBStats{},
+		aofStats:     AOFStats{},
+		generalStats: GeneralStats{},
+	}
 
-type AOFStats struct {
-	aof_rewrites int
-}
+	if conf.aofEnabled {
+		state.aof = NewAof(conf)
 
-type GeneralStats struct {
-	total_connections_received int
-	total_commands_processed   int
-	expired_keys               int
-	evicted_keys               int
-}
+		if conf.aofFsync == EverySec {
+			go func() {
+				t := time.NewTicker(time.Second)
+				defer t.Stop()
 
+				for range t.C {
+					state.aof.w.Flush()
+				}
+			}()
+		}
+	}
+
+	return &state
+}

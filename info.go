@@ -48,7 +48,7 @@ func (info *Info) build(state *AppState) {
 	}
 
 	info.memory = map[string]string{
-		"used_memory":         fmt.Sprint(db.mem),
+		"used_memory":         fmt.Sprint(DB.mem),
 		"used_memory_peak":    fmt.Sprint(state.peakMem),
 		"total_system_memory": fmt.Sprint(memTotal),
 		"maxmemory":           fmt.Sprint(state.conf.maxmem),

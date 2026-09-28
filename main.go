@@ -6,28 +6,34 @@ import (
 	"log"
 	"net"
 	"os"
-	"time"
 )
 
-func main() {
-	log.Println("Reading config file...")
-	conf := readConf("./redis.conf")
-	state := newAppState(conf)
-	if conf.aofEnabled {
-		log.Println("Syncing AOF...")
-		state.aof.Sync()
-	}
-	
 
-	listener, err := net.Listen("tcp", ":6379")
-	if err != nil {
-		log.Fatal("Cannot listen on port 6379: ", err)
+func main() {
+	log.Println("reading config file")
+	conf := readConf("./redis.conf")
+
+	state := NewAppState(conf)
+
+	if conf.aofEnabled {
+		log.Println("syncing AOF records")
+		state.aof.Sync(conf.maxmem, conf.eviction, conf.memSamples)
 	}
-	defer listener.Close()
+
+	if len(conf.rdb) > 0 {
+		SyncRDB(conf)
+		InitRDBTrackers(state)
+	}
+
+	l, err := net.Listen("tcp", ":6379")
+	if err != nil {
+		log.Fatal("cannot listen on :6379")
+	}
+	defer l.Close()
 	log.Println("listening on :6379")
 
 	for {
-		conn, err := listener.Accept()
+		conn, err := l.Accept()
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
@@ -38,37 +44,28 @@ func main() {
 			handleConn(conn, state)
 		}()
 	}
-
-	
 }
-
-
-func newAppState(conf *Config) *AppState {
-	state := AppState{conf: conf}
-
-	if conf.aofEnabled {
-		state.aof = NewAof(conf)
-
-		if conf.aofFsync == EverySec {
-			go func() {
-				t := time.NewTicker(time.Second)
-				defer t.Stop()
-
-				for range t.C {
-					state.aof.w.Flush()
-				}
-			}()
-		}
-	}
-
-	return &state
-}
-
 
 func handleConn(conn net.Conn, state *AppState) {
 	log.Println("accepted new connection: ", conn.LocalAddr().String())
 	c := NewClient(conn)
 	r := bufio.NewReader(conn)
+
+	defer func() {
+		new := state.monitors[:0]
+		for _, mon := range state.monitors {
+			if mon != c {
+				new = append(new, mon)
+			}
+		}
+		state.monitors = new
+	}()
+
+	state.clientCount++
+	defer func() {
+		state.clientCount--
+	}()
+	state.generalStats.total_connections_received++
 
 	for {
 		v := Value{typ: ARRAY}

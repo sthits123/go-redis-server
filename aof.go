@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -29,10 +31,11 @@ func NewAof(conf *Config) *Aof {
 	return &aof
 }
 
-func (aof *Aof) Sync() {
+func (aof *Aof) Sync(maxmem int64, evictionpolicy Eviction, memsamples int) {
+	r := bufio.NewReader(aof.f)
 	for {
 		v := Value{}
-		err := v.readArray(aof.f)
+		err := v.readArray(r)
 		if err == io.EOF {
 			break
 		}
@@ -40,9 +43,43 @@ func (aof *Aof) Sync() {
 			log.Println("unexpected error while reading AOF records: ", err)
 			break
 		}
-		blankState:=newAppState(&Config{})
-		blankClient := Client{}
-		set(&blankClient,&v,blankState)
 
+		blankState := NewAppState(&Config{
+			maxmem:     maxmem,
+			eviction:   evictionpolicy,
+			memSamples: memsamples,
+		})
+		blankClient := Client{}
+		set(&blankClient, &v, blankState)
 	}
+}
+
+func (aof *Aof) Rewrite(cp map[string]*Item) {
+	var b bytes.Buffer
+	aof.w = NewWriter(&b)
+
+	if err := aof.f.Truncate(0); err != nil {
+		log.Println("aof rewrite - truncate error: ", err)
+		return
+	}
+	if _, err := aof.f.Seek(0, 0); err != nil {
+		log.Println("aof rewrite - seek error: ", err)
+		return
+	}
+
+	// write all SET commands to file
+	fwriter := NewWriter(aof.f)
+	for k, v := range cp {
+		cmd := Value{typ: BULK, bulk: "SET"}
+		key := Value{typ: BULK, bulk: k}
+		val := Value{typ: BULK, bulk: v.V}
+
+		arr := Value{typ: ARRAY, array: []Value{
+			cmd, key, val,
+		}}
+		fwriter.Write(&arr)
+	}
+	fwriter.Flush()
+
+	aof.w = NewWriter(aof.f)
 }

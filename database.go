@@ -5,6 +5,7 @@ import (
 	"log"
 	"sort"
 	"sync"
+	"time"
 )
 
 type Database struct {
@@ -15,11 +16,10 @@ type Database struct {
 
 func NewDatabase() *Database {
 	return &Database{
-		store: make(map[string]*Item),
+		store: map[string]*Item{},
 		mu:    sync.RWMutex{},
 	}
 }
-
 
 func (db *Database) evictKeys(state *AppState, requiredMem int64) error {
 	if state.conf.eviction == NoEviction {
@@ -74,6 +74,37 @@ func (db *Database) evictKeys(state *AppState, requiredMem int64) error {
 	return nil
 }
 
+func (db *Database) tryExpire(k string, i *Item, state *AppState) bool {
+	if i.shouldExpire() {
+		DB.mu.Lock()
+		DB.Delete(k)
+		DB.mu.Unlock()
+		state.generalStats.expired_keys++
+		return true
+	}
+	return false
+}
+
+func (db *Database) Get(k string, state *AppState) (i *Item, ok bool) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	item, ok := db.store[k]
+	if !ok {
+		return item, ok
+	}
+	expired := db.tryExpire(k, item, state)
+	if expired {
+		return &Item{}, false
+	}
+
+	item.Accesses++
+	item.LastAccess = time.Now()
+
+	log.Printf("item %s accessed %d times at: %v", k, item.Accesses, item.LastAccess)
+	return item, ok
+}
+
 func (db *Database) Set(k string, v string, state *AppState) error {
 	if old, ok := db.store[k]; ok {
 		oldmem := old.approxMemUsage(k)
@@ -114,15 +145,4 @@ func (db *Database) Delete(k string) {
 	log.Println("memory: ", db.mem)
 }
 
-func (db *Database) tryExpire(k string, i *Item, state *AppState) bool {
-	if i.shouldExpire() {
-		db.mu.Lock()
-		db.Delete(k)
-		db.mu.Unlock()
-		return true
-	}
-	return false
-}
-
-
-var db = NewDatabase()
+var DB = NewDatabase()
