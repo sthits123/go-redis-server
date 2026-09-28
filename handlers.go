@@ -2,14 +2,14 @@ package main
 
 import (
 	"log"
-	"net"
 	"path/filepath"
 	"strconv"
-	"strings"
-	"time"
+    "time"
 )
 
-type Handler func(*Value, *AppState) *Value
+type Handler func(*Client,*Value, *AppState) *Value
+
+
 
 var Handlers = map[string]Handler{
 	"COMMAND": command,
@@ -20,30 +20,41 @@ var Handlers = map[string]Handler{
 	"KEYS":    keys,
 	"EXPIRE":  expire,
 	"TTL":     ttl,
+	"MULTI":   multi,
+	"EXEC":     _exec,
+	"DISCARD":  discard,
 }
 
-func handle(conn net.Conn, v *Value, state *AppState) {
-	if len(v.array) == 0 {
-		log.Println("empty command received")
-		NewWriter(conn).Write(&Value{typ: ERROR, err: "ERR empty command"})
-		return
-	}
+func handle(c *Client,v *Value, state *AppState) {
 
-	cmd := strings.ToUpper(v.array[0].bulk)
+	cmd := v.array[0].bulk
 	handler, ok := Handlers[cmd]
+	w := NewWriter(c.conn)
+
 	if !ok {
-		log.Println("invalid command: ", cmd)
+		w.Write(&Value{typ: ERROR, err: "ERR invalid command"})
+		w.Flush()
 		return
 	}
 
-	reply := handler(v, state)
-	w := NewWriter(conn)
+	if state.tx != nil && cmd != "EXEC" && cmd != "DISCARD" {
+		txCmd := TxCommand{v: v, handler: handler}
+		state.tx.cmds = append(state.tx.cmds, &txCmd)
+		w.Write(&Value{typ: STRING, str: "QUEUED"})
+		w.Flush()
+		return
+	}
+
+	reply := handler(c, v, state)
 	w.Write(reply)
 	w.Flush()
 
+
+	
+
 }
 
-func get(v *Value, state *AppState) *Value {
+func get(c *Client,v *Value, state *AppState) *Value {
 	args := v.array[1:]
 	if len(args) != 1 {
 		return &Value{typ: ERROR, err: "ERR invalid number of arguments for 'GET' command"}
@@ -61,7 +72,7 @@ func get(v *Value, state *AppState) *Value {
 	return &Value{typ: BULK, bulk: val.V}
 }
 
-func set(v *Value, state *AppState) *Value {
+func set(c *Client,v *Value, state *AppState) *Value {
 	args := v.array[1:]
 	if len(args) != 2 {
 		return &Value{typ: ERROR, err: "ERR invalid number of arguments for 'SET' command"}
@@ -83,12 +94,12 @@ func set(v *Value, state *AppState) *Value {
 	return &Value{typ: STRING, str: "OK"}
 }
 
-func command(v *Value, state *AppState) *Value {
+func command(c *Client,v *Value, state *AppState) *Value {
 	return &Value{typ: STRING, str: "OK"}
 }
 
 
-func del( v *Value, state *AppState) *Value {
+func del(c *Client,v *Value, state *AppState) *Value {
 	args := v.array[1:]
 	var n int
 
@@ -105,7 +116,7 @@ func del( v *Value, state *AppState) *Value {
 	return &Value{typ: INTEGER, num: n}
 }
 
-func exists( v *Value, state *AppState) *Value {
+func exists(c *Client,v *Value, state *AppState) *Value {
 	args := v.array[1:]
 	var n int
 
@@ -121,7 +132,7 @@ func exists( v *Value, state *AppState) *Value {
 	return &Value{typ: INTEGER, num: n}
 }
 
-func keys(v *Value, state *AppState) *Value {
+func keys(c *Client,v *Value, state *AppState) *Value {
 	args := v.array[1:]
 	if len(args) > 1 {
 		return &Value{typ: ERROR, err: "ERR invalid number of arguments for 'KEYS' command"}
@@ -151,7 +162,7 @@ func keys(v *Value, state *AppState) *Value {
 	return &reply
 }
 
-func expire( v *Value, state *AppState) *Value {
+func expire( c *Client,v *Value, state *AppState) *Value {
 	args := v.array[1:]
 	if len(args) != 2 {
 		return &Value{typ: ERROR, err: "ERR invalid number of arguments for 'EXPIRE' command"}
@@ -176,7 +187,7 @@ func expire( v *Value, state *AppState) *Value {
 	return &Value{typ: INTEGER, num: 1}
 }
 
-func ttl( v *Value, state *AppState) *Value {
+func ttl( c *Client,v *Value, state *AppState) *Value {
 	args := v.array[1:]
 	if len(args) != 1 {
 		return &Value{typ: ERROR, err: "ERR invalid number of arguments for 'TTL' command"}
@@ -208,3 +219,41 @@ func ttl( v *Value, state *AppState) *Value {
 
 	
 }
+
+func multi(c *Client, v *Value, state *AppState) *Value {
+	if state.tx != nil {
+		return &Value{typ: ERROR, err: "ERR MULTI calls can not be nested"}
+	}
+
+	state.tx = NewTransaction()
+
+	return &Value{typ: STRING, str: "OK"}
+}
+
+func _exec(c *Client, v *Value, state *AppState) *Value {
+	if state.tx == nil {
+		return &Value{typ: ERROR, err: "ERR EXEC without MULTI"}
+	}
+
+	replies := make([]Value, len(state.tx.cmds))
+	for i, cmd := range state.tx.cmds {
+		reply := cmd.handler(c, cmd.v, state)
+		replies[i] = *reply
+	}
+
+	reply := Value{typ: ARRAY, array: replies}
+
+	state.tx = nil
+
+	return &reply
+}
+
+func discard(c *Client, v *Value, state *AppState) *Value {
+	if state.tx == nil {
+		return &Value{typ: ERROR, err: "ERR DISCARD without MULTI"}
+	}
+
+	state.tx = nil
+	return &Value{typ: STRING, str: "OK"}
+}
+

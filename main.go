@@ -1,7 +1,8 @@
 package main
 
 import (
-	"io"
+	"bufio"
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -25,29 +26,26 @@ func main() {
 	defer listener.Close()
 	log.Println("listening on :6379")
 
-	conn, err := listener.Accept()
-	if err != nil {
-		log.Println(err)
-		os.Exit(1)
-	}
-	defer conn.Close()
-	log.Println("connection accepted")
-
 	for {
-		v := Value{typ: ARRAY}
-		if err := v.readArray(conn); err != nil {
-			if err != io.EOF {
-				log.Println("protocol error, closing connection: ", err)
-			}
-			return
+		conn, err := listener.Accept()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
 		}
-		handle(conn, &v, state)
+		log.Println("connection accepted")
+
+		go func() {
+			handleConn(conn, state)
+		}()
 	}
+
+	
 }
 
 type AppState struct {
 	conf *Config
 	aof  *Aof
+	tx   *Transaction
 }
 
 func newAppState(conf *Config) *AppState {
@@ -69,4 +67,21 @@ func newAppState(conf *Config) *AppState {
 	}
 
 	return &state
+}
+
+
+func handleConn(conn net.Conn, state *AppState) {
+	log.Println("accepted new connection: ", conn.LocalAddr().String())
+	c := NewClient(conn)
+	r := bufio.NewReader(conn)
+
+	for {
+		v := Value{typ: ARRAY}
+		if err := v.readArray(r); err != nil {
+			log.Println(err)
+			break
+		}
+		handle(c, &v, state)
+	}
+	log.Println("connection closed: ", conn.LocalAddr().String())
 }
