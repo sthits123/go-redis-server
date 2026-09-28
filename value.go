@@ -27,21 +27,24 @@ type Value struct {
 }
 
 
-func (v *Value) readArray(r io.Reader) {
+func (v *Value) readArray(r io.Reader) (error){
 	
 	buf:=make([]byte, 4)
-	r.Read(buf)
+	_,err:=	r.Read(buf)
+	if err != nil {
+		return err
+	}
 	arrLen, err := strconv.Atoi(string(buf[1]))
 	if err != nil {
-		fmt.Println(err)
-		return 
+		return err
 	}
 
 	for range arrLen {
 		bulk:= v.readBulk(r)
 		v.array = append(v.array, bulk)
 	}
-
+   
+	return nil
 	
 }
 

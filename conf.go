@@ -8,15 +8,13 @@ import (
 	"strings"
 )
 
-
 type Config struct {
-	dir         string
-	rdb         []RDBSnapshot
-	rdbFn       string
-	aofEnabled  bool
-	aofFn       string
-	aofFsync    FSyncMode
-	
+	dir        string
+	rdb        []RDBSnapshot
+	rdbFn      string
+	aofEnabled bool
+	aofFn      string
+	aofFsync   FSyncMode
 }
 
 func NewConfig() *Config {
@@ -36,23 +34,20 @@ const (
 	No       FSyncMode = "no"
 )
 
-
-
 func readConf(path string) *Config {
 	conf := NewConfig()
 
-	file,err := os.Open(path)
+	file, err := os.Open(path)
 	if err != nil {
 		fmt.Printf("cannot read %s - using default config\n", path)
 		return conf
 	}
 	defer file.Close()
 
-
 	s := bufio.NewScanner(file)
 
 	for s.Scan() {
-		l := s.Text()		
+		l := s.Text()
 		parseLine(l, conf)
 	}
 
@@ -67,7 +62,6 @@ func readConf(path string) *Config {
 
 	return conf
 }
-
 
 func parseLine(l string, conf *Config) {
 	args := strings.Split(l, " ")
@@ -107,8 +101,5 @@ func parseLine(l string, conf *Config) {
 			conf.aofEnabled = false
 		}
 	}
-	
-	
+
 }
-
-
