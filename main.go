@@ -12,10 +12,11 @@ func main() {
 	log.Println("Reading config file...")
 	conf := readConf("./redis.conf")
 	state := newAppState(conf)
-	if state.conf.aofEnabled {
+	if conf.aofEnabled {
 		log.Println("Syncing AOF...")
 		state.aof.Sync()
 	}
+	
 
 	listener, err := net.Listen("tcp", ":6379")
 	if err != nil {

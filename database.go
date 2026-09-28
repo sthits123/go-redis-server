@@ -1,6 +1,7 @@
 package main
 
 import (
+	
 	"sync"
 )
 
@@ -14,6 +15,15 @@ func NewDatabase() *Database {
 		store: make(map[string]string),
 		mu:    sync.RWMutex{},
 	}
+}
+
+func (db *Database) Delete(k string) {
+	_, ok := db.store[k]
+	if !ok {
+		return 
+	}
+
+	delete(db.store, k)
 }
 
 var db = NewDatabase()
